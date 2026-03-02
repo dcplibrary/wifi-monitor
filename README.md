@@ -59,6 +59,8 @@ Available settings:
 - `SYSLOG_HOST` - Host to bind syslog listener to (default: 0.0.0.0)
 - `DB_PATH` - Path to SQLite database file (default: ./wireless_stats.db)
 - `LOG_PATH` - Path to service log file (default: ./wireless_service.log)
+- `AUTH_EVENTS_RETENTION_DAYS` - Days to keep raw auth events (default: 30)
+- `DAILY_STATS_RETENTION_DAYS` - Days to keep daily stats (default: 365)
 
 ## Requirements
 
@@ -295,6 +297,29 @@ Most frequently seen devices. Defaults to last 7 days, top 20.
 ### `GET /api/ssids?days=N`
 
 Per-SSID breakdown. Defaults to last 7 days.
+
+### `POST /api/cleanup`
+
+Manually trigger database cleanup to remove old records based on retention policy.
+
+```bash
+curl -X POST http://localhost:8080/api/cleanup
+```
+
+## Database Maintenance
+
+The service automatically cleans up old data daily at 3 AM to keep the database size manageable:
+
+- **Raw authentication events** are deleted after 30 days (configurable via `AUTH_EVENTS_RETENTION_DAYS`)
+- **Daily statistics** are deleted after 365 days (configurable via `DAILY_STATS_RETENTION_DAYS`)
+
+You can manually trigger cleanup anytime via the API:
+
+```bash
+curl -X POST http://localhost:8080/api/cleanup
+```
+
+The cleanup process also runs `VACUUM` to reclaim disk space.
 
 ## CLI Commands (wireless_monitor.py)
 

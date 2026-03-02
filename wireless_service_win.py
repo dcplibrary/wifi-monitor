@@ -19,7 +19,7 @@ import win32service
 import win32event
 import servicemanager
 
-from app import app, start_all, SyslogListener, init_db, API_HOST, API_PORT, log
+from app import app, start_all, init_db, API_HOST, API_PORT, log
 
 
 class WirelessStatsService(win32serviceutil.ServiceFramework):
@@ -31,6 +31,7 @@ class WirelessStatsService(win32serviceutil.ServiceFramework):
         win32serviceutil.ServiceFramework.__init__(self, args)
         self.stop_event = win32event.CreateEvent(None, 0, 0, None)
         self.listener = None
+        self.scheduler = None
         self.api_thread = None
 
     def SvcStop(self):
@@ -38,6 +39,8 @@ class WirelessStatsService(win32serviceutil.ServiceFramework):
         win32event.SetEvent(self.stop_event)
         if self.listener:
             self.listener.stop()
+        if self.scheduler:
+            self.scheduler.stop()
         log.info("Service stop requested")
 
     def SvcDoRun(self):
@@ -50,11 +53,9 @@ class WirelessStatsService(win32serviceutil.ServiceFramework):
 
     def main(self):
         log.info("Windows service starting...")
-        init_db()
-
-        # Start syslog listener
-        self.listener = SyslogListener()
-        self.listener.start()
+        
+        # Start all components
+        self.listener, self.scheduler = start_all()
 
         # Start Flask API in a thread
         self.api_thread = threading.Thread(
@@ -71,6 +72,7 @@ class WirelessStatsService(win32serviceutil.ServiceFramework):
         win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
 
         self.listener.stop()
+        self.scheduler.stop()
         log.info("Service stopped")
 
 

@@ -13,7 +13,8 @@ import threading
 import os
 import sys
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
 
@@ -29,6 +30,8 @@ SYSLOG_HOST = os.environ.get("SYSLOG_HOST", "0.0.0.0")
 SYSLOG_PORT = int(os.environ.get("SYSLOG_PORT", 514))
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", 8080))
+AUTH_EVENTS_RETENTION_DAYS = int(os.environ.get("AUTH_EVENTS_RETENTION_DAYS", 30))
+DAILY_STATS_RETENTION_DAYS = int(os.environ.get("DAILY_STATS_RETENTION_DAYS", 365))
 MAC_PATTERN = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 SSID_PATTERN = re.compile(r"(?:SSID[=:\s]+|value=['\"])([^'\")\s,;]+)", re.IGNORECASE)
 
@@ -109,6 +112,36 @@ def record_event(mac, event_type=None, ssid=None):
     conn.close()
 
 
+def cleanup_old_data():
+    """Remove old records based on retention policy."""
+    conn = get_db()
+    c = conn.cursor()
+    
+    # Calculate cutoff dates
+    auth_cutoff = (datetime.now() - timedelta(days=AUTH_EVENTS_RETENTION_DAYS)).isoformat()
+    stats_cutoff = (datetime.now() - timedelta(days=DAILY_STATS_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    
+    # Clean up auth_events
+    c.execute("DELETE FROM auth_events WHERE timestamp < ?", (auth_cutoff,))
+    auth_deleted = c.rowcount
+    
+    # Clean up daily_stats
+    c.execute("DELETE FROM daily_stats WHERE date < ?", (stats_cutoff,))
+    stats_deleted = c.rowcount
+    
+    # Optimize database
+    c.execute("VACUUM")
+    
+    conn.commit()
+    conn.close()
+    
+    log.info(
+        "Database cleanup completed: %d auth_events deleted (>%d days), %d daily_stats deleted (>%d days)",
+        auth_deleted, AUTH_EVENTS_RETENTION_DAYS, stats_deleted, DAILY_STATS_RETENTION_DAYS
+    )
+    return {"auth_events_deleted": auth_deleted, "daily_stats_deleted": stats_deleted}
+
+
 # ---------- Syslog Listener ----------
 
 
@@ -166,6 +199,40 @@ class SyslogListener(threading.Thread):
         self.running = False
 
 
+class CleanupScheduler(threading.Thread):
+    """Background thread that runs database cleanup daily."""
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.running = True
+
+    def run(self):
+        log.info("Cleanup scheduler started (runs daily at 3 AM)")
+        while self.running:
+            now = datetime.now()
+            # Schedule for 3 AM next day
+            next_run = now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if next_run <= now:
+                next_run += timedelta(days=1)
+            
+            sleep_seconds = (next_run - now).total_seconds()
+            
+            # Sleep in 60-second intervals to allow graceful shutdown
+            while sleep_seconds > 0 and self.running:
+                time.sleep(min(60, sleep_seconds))
+                sleep_seconds -= 60
+            
+            if self.running:
+                try:
+                    cleanup_old_data()
+                except Exception as e:
+                    log.error("Cleanup error: %s", e)
+        
+        log.info("Cleanup scheduler stopped")
+
+    def stop(self):
+        self.running = False
+
+
 # ---------- Flask API ----------
 
 app = Flask(__name__)
@@ -183,6 +250,7 @@ def index():
             "/api/unique-users": "All-time unique users (optional ?days=N)",
             "/api/top-devices?days=N": "Top devices by frequency",
             "/api/ssids?days=N": "Per-SSID breakdown",
+            "/api/cleanup": "Manually trigger database cleanup",
         },
     })
 
@@ -423,25 +491,48 @@ def api_ssids():
     return jsonify({"period_days": days, "ssids": ssids})
 
 
+@app.route("/api/cleanup", methods=["POST"])
+def api_cleanup():
+    """Manually trigger database cleanup."""
+    try:
+        result = cleanup_old_data()
+        return jsonify({
+            "status": "success",
+            "message": "Database cleanup completed",
+            "deleted": result
+        })
+    except Exception as e:
+        log.error("Manual cleanup failed: %s", e)
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
 # ---------- Run ----------
 
 def start_all():
-    """Start syslog listener and Flask API."""
+    """Start syslog listener, cleanup scheduler, and Flask API."""
     init_db()
     listener = SyslogListener()
     listener.start()
+    
+    scheduler = CleanupScheduler()
+    scheduler.start()
+    
     log.info("Starting API on http://%s:%d", API_HOST, API_PORT)
-    return listener
+    return listener, scheduler
 
 
 def main():
-    listener = start_all()
+    listener, scheduler = start_all()
     try:
         app.run(host=API_HOST, port=API_PORT, threaded=True)
     except KeyboardInterrupt:
         pass
     finally:
         listener.stop()
+        scheduler.stop()
         log.info("Service stopped")
 
 
