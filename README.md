@@ -44,11 +44,77 @@ Configure the MSM controller to forward authentication events via syslog.
 
 > **Note:** The filter ensures only successful authentication events from the event manager are forwarded, reducing noise and database size.
 
+## Configuration
+
+The service can be configured using a `.env` file. Copy `.env.example` to `.env` and modify as needed:
+
+```bash
+cp .env.example .env
+```
+
+Available settings:
+- `API_PORT` - Port for the REST API (default: 8080)
+- `API_HOST` - Host to bind the API to (default: 0.0.0.0)
+- `SYSLOG_PORT` - Port for syslog listener (default: 514)
+- `SYSLOG_HOST` - Host to bind syslog listener to (default: 0.0.0.0)
+- `DB_PATH` - Path to SQLite database file (default: ./wireless_stats.db)
+- `LOG_PATH` - Path to service log file (default: ./wireless_service.log)
+
 ## Requirements
 
 - Python 3.10+
 - Flask
+- python-dotenv
 - pywin32 (Windows only, for service support)
+
+### Installing Python
+
+#### Windows
+
+1. Download Python 3.10+ from [python.org](https://www.python.org/downloads/)
+2. Run the installer and **check** "Add Python to PATH"
+3. Verify installation:
+
+```powershell
+python --version
+```
+
+#### macOS
+
+Using Homebrew:
+
+```bash
+brew install python@3.10
+```
+
+Or download from [python.org](https://www.python.org/downloads/)
+
+Verify installation:
+
+```bash
+python3 --version
+```
+
+#### Linux
+
+Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip
+```
+
+RHEL/CentOS/Fedora:
+
+```bash
+sudo dnf install python3 python3-pip
+```
+
+Verify installation:
+
+```bash
+python3 --version
+```
 
 ## Installation
 

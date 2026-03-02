@@ -15,16 +15,20 @@ import sys
 import logging
 from datetime import datetime
 from flask import Flask, jsonify, request
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ---------- Config ----------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "wireless_stats.db"))
 LOG_PATH = os.environ.get("LOG_PATH", os.path.join(BASE_DIR, "wireless_service.log"))
-SYSLOG_HOST = "0.0.0.0"
-SYSLOG_PORT = 514
-API_HOST = "0.0.0.0"
-API_PORT = 8080
+SYSLOG_HOST = os.environ.get("SYSLOG_HOST", "0.0.0.0")
+SYSLOG_PORT = int(os.environ.get("SYSLOG_PORT", 514))
+API_HOST = os.environ.get("API_HOST", "0.0.0.0")
+API_PORT = int(os.environ.get("API_PORT", 8080))
 MAC_PATTERN = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 SSID_PATTERN = re.compile(r"(?:SSID[=:\s]+|value=['\"])([^'\")\s,;]+)", re.IGNORECASE)
 
