@@ -1,0 +1,16 @@
+services:
+  wifi-monitor:
+    build: .
+    container_name: wifi-monitor
+    restart: unless-stopped
+    ports:
+      - "514:514/udp"
+      - "8080:8080"
+    volumes:
+      - wifi-data:/app/data
+    environment:
+      - SYSLOG_PORT=514
+      - API_PORT=8080
+
+volumes:
+  wifi-data:

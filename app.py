@@ -19,8 +19,8 @@ from flask import Flask, jsonify, request
 # ---------- Config ----------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "wireless_stats.db")
-LOG_PATH = os.path.join(BASE_DIR, "wireless_service.log")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "wireless_stats.db"))
+LOG_PATH = os.environ.get("LOG_PATH", os.path.join(BASE_DIR, "wireless_service.log"))
 SYSLOG_HOST = "0.0.0.0"
 SYSLOG_PORT = 514
 API_HOST = "0.0.0.0"

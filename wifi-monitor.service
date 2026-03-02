@@ -1,0 +1,15 @@
+[Unit]
+Description=Wireless User Statistics Service
+Documentation=https://github.com/dcplibrary/wifi-monitor
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/wifi-monitor
+ExecStart=/usr/bin/python3 /opt/wifi-monitor/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

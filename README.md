@@ -88,7 +88,67 @@ python wireless_service_win.py remove
 
 The service is also visible in `services.msc` as **Wireless User Statistics Service**.
 
-### macOS / Linux (CLI mode)
+### Linux Install
+
+```bash
+git clone git@github.com:dcplibrary/wifi-monitor.git
+cd wifi-monitor
+pip install -r requirements.txt
+sudo python3 app.py
+```
+
+To run as a systemd service:
+
+```bash
+sudo cp wifi-monitor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable wifi-monitor
+sudo systemctl start wifi-monitor
+```
+
+Check status:
+
+```bash
+sudo systemctl status wifi-monitor
+journalctl -u wifi-monitor -f
+```
+
+### Docker
+
+```bash
+git clone git@github.com:dcplibrary/wifi-monitor.git
+cd wifi-monitor
+docker compose up -d
+```
+
+This starts the service with:
+- Syslog listener on UDP 514
+- REST API on http://localhost:8080
+- Persistent data volume (`wifi-data`)
+- Auto-restart on reboot
+
+Manage the container:
+
+```bash
+docker compose logs -f          # View logs
+docker compose restart           # Restart
+docker compose down              # Stop
+docker compose down -v           # Stop and remove data
+```
+
+To use a pre-built image without cloning:
+
+```bash
+docker run -d \
+  --name wifi-monitor \
+  --restart unless-stopped \
+  -p 514:514/udp \
+  -p 8080:8080 \
+  -v wifi-data:/app/data \
+  ghcr.io/dcplibrary/wifi-monitor:latest
+```
+
+### macOS (CLI mode)
 
 ```bash
 sudo python3 wireless_monitor.py
@@ -188,6 +248,9 @@ wireless_stats/
 ├── wireless_monitor.py       # Standalone CLI monitor
 ├── wireless_service_win.py   # Windows service wrapper
 ├── install_windows.bat       # One-click Windows installer
+├── Dockerfile                # Docker image definition
+├── docker-compose.yml        # Docker Compose config
+├── wifi-monitor.service      # systemd unit file (Linux)
 ├── requirements.txt          # Python dependencies
 ├── wireless_stats.db         # SQLite database (auto-created)
 ├── wireless_service.log      # Service log (auto-created)
