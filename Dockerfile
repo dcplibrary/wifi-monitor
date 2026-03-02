@@ -9,7 +9,7 @@ COPY app.py .
 COPY wireless_monitor.py .
 
 EXPOSE 514/udp
-EXPOSE 8080/tcp
+EXPOSE 8088/tcp
 
 VOLUME ["/app/data"]
 

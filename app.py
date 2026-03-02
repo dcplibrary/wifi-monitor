@@ -19,7 +19,17 @@ from flask import Flask, jsonify, request
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+# Try multiple common locations for .env file
+env_locations = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+    ".env",
+]
+env_loaded = False
+for env_path in env_locations:
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=True)
+        env_loaded = True
+        break
 
 # ---------- Config ----------
 
@@ -29,7 +39,7 @@ LOG_PATH = os.environ.get("LOG_PATH", os.path.join(BASE_DIR, "wireless_service.l
 SYSLOG_HOST = os.environ.get("SYSLOG_HOST", "0.0.0.0")
 SYSLOG_PORT = int(os.environ.get("SYSLOG_PORT", 514))
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
-API_PORT = int(os.environ.get("API_PORT", 8080))
+API_PORT = int(os.environ.get("API_PORT", 8088))
 AUTH_EVENTS_RETENTION_DAYS = int(os.environ.get("AUTH_EVENTS_RETENTION_DAYS", 30))
 DAILY_STATS_RETENTION_DAYS = int(os.environ.get("DAILY_STATS_RETENTION_DAYS", 365))
 MAC_PATTERN = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
@@ -46,6 +56,13 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("wireless_stats")
+
+if env_loaded:
+    log.info("Configuration loaded from .env file")
+else:
+    log.info("No .env file found, using default configuration")
+log.info("API will run on %s:%d", API_HOST, API_PORT)
+log.info("Syslog listener will bind to %s:%d", SYSLOG_HOST, SYSLOG_PORT)
 
 # ---------- Database ----------
 

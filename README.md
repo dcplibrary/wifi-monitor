@@ -53,7 +53,7 @@ cp .env.example .env
 ```
 
 Available settings:
-- `API_PORT` - Port for the REST API (default: 8080)
+- `API_PORT` - Port for the REST API (default: 8088)
 - `API_HOST` - Host to bind the API to (default: 0.0.0.0)
 - `SYSLOG_PORT` - Port for syslog listener (default: 514)
 - `SYSLOG_HOST` - Host to bind syslog listener to (default: 0.0.0.0)
@@ -120,22 +120,41 @@ python3 --version
 
 ## Installation
 
+### Configuration
+
+Copy the example environment file and customize as needed:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to change settings like:
+- `API_PORT` — REST API port (default: 8088)
+- `SYSLOG_PORT` — Syslog listener port (default: 514)
+- Data retention periods
+
 ### Quick Start (any OS)
 
 ```bash
+cp .env.example .env
 pip install -r requirements.txt
 sudo python3 app.py
 ```
 
 The service will start:
 - **Syslog listener** on UDP port 514
-- **REST API** on http://localhost:8080
+- **REST API** on http://localhost:8088 (or port specified in `.env`)
 
 ### Windows Service Install
 
 1. Copy the `wireless_stats` folder to the Windows server
-2. Open a **Command Prompt as Administrator**
-3. Run:
+2. Copy `.env.example` to `.env` and edit as needed:
+   ```powershell
+   copy .env.example .env
+   notepad .env
+   ```
+3. Open a **Command Prompt as Administrator**
+4. Run:
 
 ```powershell
 pip install -r requirements.txt
@@ -191,7 +210,7 @@ docker compose up -d
 
 This starts the service with:
 - Syslog listener on UDP 514
-- REST API on http://localhost:8080
+- REST API on http://localhost:8088 (or port specified in `.env`)
 - Persistent data volume (`wifi-data`)
 - Auto-restart on reboot
 
@@ -211,7 +230,7 @@ docker run -d \
   --name wifi-monitor \
   --restart unless-stopped \
   -p 514:514/udp \
-  -p 8080:8080 \
+  -p 8088:8088 \
   -v wifi-data:/app/data \
   ghcr.io/dcplibrary/wifi-monitor:latest
 ```
@@ -226,7 +245,7 @@ Press `Ctrl+C` to stop and print a summary report.
 
 ## API Endpoints
 
-Base URL: `http://localhost:8080`
+Base URL: `http://localhost:8088` (or your configured port)
 
 ### `GET /api/today`
 
@@ -303,7 +322,7 @@ Per-SSID breakdown. Defaults to last 7 days.
 Manually trigger database cleanup to remove old records based on retention policy.
 
 ```bash
-curl -X POST http://localhost:8080/api/cleanup
+curl -X POST http://localhost:8088/api/cleanup
 ```
 
 ## Database Maintenance
@@ -316,7 +335,7 @@ The service automatically cleans up old data daily at 3 AM to keep the database 
 You can manually trigger cleanup anytime via the API:
 
 ```bash
-curl -X POST http://localhost:8080/api/cleanup
+curl -X POST http://localhost:8088/api/cleanup
 ```
 
 The cleanup process also runs `VACUUM` to reclaim disk space.

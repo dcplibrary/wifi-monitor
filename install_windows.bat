@@ -52,14 +52,14 @@ echo  Installation complete!
 echo.
 echo  Service: WirelessStatsService
 echo  Syslog:  Listening on UDP port 514
-echo  API:     http://localhost:8080
+echo  API:     http://localhost:8088
 echo.
 echo  API Endpoints:
-echo    http://localhost:8080/api/today
-echo    http://localhost:8080/api/date/2026-03-02
-echo    http://localhost:8080/api/month/2026-03
-echo    http://localhost:8080/api/unique-users
-echo    http://localhost:8080/api/unique-users?days=30
+echo    http://localhost:8088/api/today
+echo    http://localhost:8088/api/date/2026-03-02
+echo    http://localhost:8088/api/month/2026-03
+echo    http://localhost:8088/api/unique-users
+echo    http://localhost:8088/api/unique-users?days=30
 echo.
 echo  Manage service:
 echo    net stop WirelessStatsService
