@@ -171,6 +171,15 @@ python wireless_service_win.py start
 Or use the one-click installer:
 - Right-click `install_windows.bat` → **Run as administrator**
 
+> **Tip:** If PowerShell scripts won't run due to execution policy, you can bypass it temporarily:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File script.ps1
+> ```
+> Or permanently allow local scripts:
+> ```powershell
+> Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
 ### Manage the Windows Service
 
 ```powershell
@@ -213,10 +222,16 @@ Right-click PowerShell and select **Run as Administrator**, then:
 
 ```powershell
 cd C:\path\to\wifi-monitor
+powershell -ExecutionPolicy Bypass -File .\update.ps1
+```
+
+Or if execution policy allows:
+
+```powershell
 .\update.ps1
 ```
 
-Or double-click `update.ps1` and select "Run with PowerShell".
+> **Note:** If you get an "execution policy" error, use the `-ExecutionPolicy Bypass` flag as shown above. This bypasses the policy for just this script without changing system settings.
 
 **Linux/macOS:**
 
