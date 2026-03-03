@@ -43,6 +43,16 @@ API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", 8088))
 AUTH_EVENTS_RETENTION_DAYS = int(os.environ.get("AUTH_EVENTS_RETENTION_DAYS", 30))
 DAILY_STATS_RETENTION_DAYS = int(os.environ.get("DAILY_STATS_RETENTION_DAYS", 365))
+
+# By default, we DO NOT store raw auth_events rows (to avoid event-count tracking).
+# The daily_stats table still tracks per-device first_seen/last_seen for time-of-day analysis.
+STORE_AUTH_EVENTS = os.environ.get("STORE_AUTH_EVENTS", "false").lower() in ("1", "true", "yes", "on")
+
+# Optional SSID normalization for HP MSM style identifiers (r1v1, r2v2, etc.)
+SSID_V1_NAME = os.environ.get("SSID_V1_NAME", "DCPL-PATRON")
+SSID_V2_NAME = os.environ.get("SSID_V2_NAME", "DCPL-STAFF")
+SSID_V3_NAME = os.environ.get("SSID_V3_NAME", "DCPL-OPS")
+
 MAC_PATTERN = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
 SSID_PATTERN = re.compile(r"(?:SSID[=:\s]+|value=['\"])([^'\")\s,;]+)", re.IGNORECASE)
 
@@ -107,25 +117,37 @@ def init_db():
 
 
 def record_event(mac, event_type=None, ssid=None):
+    """Record a successful auth for MAC for the day.
+
+    We intentionally do NOT track event counts. We only keep per-day first_seen/last_seen
+    (and SSID) so we can compute duration and time-of-day activity.
+    """
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
     mac = mac.upper()
+
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "INSERT INTO auth_events (mac_address, event_type, ssid, timestamp) VALUES (?, ?, ?, ?)",
-        (mac, event_type, ssid, now.isoformat()),
-    )
+
+    if STORE_AUTH_EVENTS:
+        c.execute(
+            "INSERT INTO auth_events (mac_address, event_type, ssid, timestamp) VALUES (?, ?, ?, ?)",
+            (mac, event_type, ssid, now.isoformat()),
+        )
+
+    # Upsert: keep first_seen from initial insert, update last_seen every time.
+    # auth_count remains 1 and is kept only for backwards compatibility.
     c.execute(
         """
         INSERT INTO daily_stats (date, mac_address, auth_count, first_seen, last_seen, ssid)
         VALUES (?, ?, 1, ?, ?, ?)
         ON CONFLICT(date, mac_address) DO UPDATE SET
-            auth_count = auth_count + 1,
-            last_seen = ?
+            last_seen = excluded.last_seen,
+            ssid = COALESCE(excluded.ssid, daily_stats.ssid)
         """,
-        (today, mac, now.isoformat(), now.isoformat(), ssid, now.isoformat()),
+        (today, mac, now.isoformat(), now.isoformat(), ssid),
     )
+
     conn.commit()
     conn.close()
 
@@ -134,25 +156,27 @@ def cleanup_old_data():
     """Remove old records based on retention policy."""
     conn = get_db()
     c = conn.cursor()
-    
+
+    auth_deleted = 0
+    stats_deleted = 0
+
     # Calculate cutoff dates
-    auth_cutoff = (datetime.now() - timedelta(days=AUTH_EVENTS_RETENTION_DAYS)).isoformat()
-    stats_cutoff = (datetime.now() - timedelta(days=DAILY_STATS_RETENTION_DAYS)).strftime("%Y-%m-%d")
-    
-    # Clean up auth_events
-    c.execute("DELETE FROM auth_events WHERE timestamp < ?", (auth_cutoff,))
-    auth_deleted = c.rowcount
-    
-    # Clean up daily_stats
-    c.execute("DELETE FROM daily_stats WHERE date < ?", (stats_cutoff,))
-    stats_deleted = c.rowcount
-    
+    if AUTH_EVENTS_RETENTION_DAYS > 0:
+        auth_cutoff = (datetime.now() - timedelta(days=AUTH_EVENTS_RETENTION_DAYS)).isoformat()
+        c.execute("DELETE FROM auth_events WHERE timestamp < ?", (auth_cutoff,))
+        auth_deleted = c.rowcount
+
+    if DAILY_STATS_RETENTION_DAYS > 0:
+        stats_cutoff = (datetime.now() - timedelta(days=DAILY_STATS_RETENTION_DAYS)).strftime("%Y-%m-%d")
+        c.execute("DELETE FROM daily_stats WHERE date < ?", (stats_cutoff,))
+        stats_deleted = c.rowcount
+
     # Optimize database
     c.execute("VACUUM")
-    
+
     conn.commit()
     conn.close()
-    
+
     log.info(
         "Database cleanup completed: %d auth_events deleted (>%d days), %d daily_stats deleted (>%d days)",
         auth_deleted, AUTH_EVENTS_RETENTION_DAYS, stats_deleted, DAILY_STATS_RETENTION_DAYS
@@ -161,6 +185,29 @@ def cleanup_old_data():
 
 
 # ---------- Syslog Listener ----------
+
+
+def normalize_ssid(ssid: str | None) -> str | None:
+    if not ssid:
+        return None
+
+    # If syslog already contains friendly DCPL names, keep them.
+    m = re.search(r"DCPL-(PATRON|STAFF|OPS)", ssid, re.IGNORECASE)
+    if m:
+        return f"DCPL-{m.group(1).upper()}"
+
+    lower = ssid.lower()
+
+    # HP MSM style IDs like r1v1, r2v2, etc.
+    # v1/v2/v3 naming can be configured via .env.
+    if re.search(r"v1(?!\d)", lower):
+        return SSID_V1_NAME
+    if re.search(r"v2(?!\d)", lower):
+        return SSID_V2_NAME
+    if re.search(r"v3(?!\d)", lower):
+        return SSID_V3_NAME
+
+    return ssid
 
 
 def parse_syslog(data):
@@ -182,6 +229,8 @@ def parse_syslog(data):
     if ssid_match:
         ssid = ssid_match.group(1).strip("'\"")
 
+    ssid = normalize_ssid(ssid)
+
     return {"mac": macs[0], "event_type": event_type, "ssid": ssid}
 
 
@@ -202,7 +251,7 @@ class SyslogListener(threading.Thread):
             try:
                 data, addr = self.sock.recvfrom(65535)
                 result = parse_syslog(data)
-                if result and result["mac"]:
+                if result and result["mac"] and result["event_type"] == "auth":
                     record_event(result["mac"], result["event_type"], result["ssid"])
             except socket.timeout:
                 continue
@@ -269,6 +318,7 @@ def index():
             "/api/unique-users": "All-time unique users (optional ?days=N)",
             "/api/top-devices?days=N": "Top devices by frequency",
             "/api/ssids?days=N": "Per-SSID breakdown",
+            "/api/busy-hours?date=YYYY-MM-DD": "Estimated busy hours (unique users per hour)",
             "/api/cleanup": "Manually trigger database cleanup",
         },
     })
@@ -292,12 +342,9 @@ def api_date(date):
     )
     unique_count = c.fetchone()[0]
 
-    # Total auth events
-    c.execute(
-        "SELECT COALESCE(SUM(auth_count), 0) FROM daily_stats WHERE date = ?",
-        (date,),
-    )
-    total_events = c.fetchone()[0]
+    # Total events is kept for backwards compatibility, but we do not track event counts.
+    # Treat this as "unique users".
+    total_events = unique_count
 
     # Per-SSID breakdown
     c.execute(
@@ -315,7 +362,7 @@ def api_date(date):
         """
         SELECT mac_address, auth_count, first_seen, last_seen, ssid
         FROM daily_stats WHERE date = ?
-        ORDER BY auth_count DESC
+        ORDER BY last_seen DESC
         """,
         (date,),
     )
@@ -341,7 +388,7 @@ def api_month(month):
         """
         SELECT date,
                COUNT(DISTINCT mac_address) as unique_users,
-               SUM(auth_count) as total_events
+               COUNT(DISTINCT mac_address) as total_events
         FROM daily_stats
         WHERE date LIKE ?
         GROUP BY date
@@ -358,11 +405,8 @@ def api_month(month):
     )
     unique_for_month = c.fetchone()[0]
 
-    c.execute(
-        "SELECT COALESCE(SUM(auth_count), 0) FROM daily_stats WHERE date LIKE ?",
-        (f"{month}%",),
-    )
-    total_events = c.fetchone()[0]
+    # Backwards-compatible total_events (we do not track event counts)
+    total_events = unique_for_month
 
     # Per-SSID for the month
     c.execute(
@@ -399,7 +443,7 @@ def api_range():
         """
         SELECT date,
                COUNT(DISTINCT mac_address) as unique_users,
-               SUM(auth_count) as total_events
+               COUNT(DISTINCT mac_address) as total_events
         FROM daily_stats
         WHERE date BETWEEN ? AND ?
         GROUP BY date ORDER BY date
@@ -499,7 +543,7 @@ def api_ssids():
         """
         SELECT COALESCE(ssid, 'Unknown') as ssid,
                COUNT(DISTINCT mac_address) as unique_users,
-               SUM(auth_count) as total_events
+               COUNT(DISTINCT mac_address) as total_events
         FROM daily_stats WHERE date >= date('now', ?)
         GROUP BY ssid ORDER BY unique_users DESC
         """,
@@ -508,6 +552,64 @@ def api_ssids():
     ssids = [dict(row) for row in c.fetchall()]
     conn.close()
     return jsonify({"period_days": days, "ssids": ssids})
+
+
+@app.route("/api/busy-hours")
+def api_busy_hours():
+    """Estimate busy hours of day by distributing unique users across connection times."""
+    date = request.args.get("date")
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # Fetch all unique users for the date with their first/last seen timestamps
+    c.execute(
+        """
+        SELECT mac_address, first_seen, last_seen
+        FROM daily_stats
+        WHERE date = ?
+        """,
+        (date,),
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    # Build hourly histogram
+    hourly_counts = {h: set() for h in range(24)}
+
+    for row in rows:
+        mac = row["mac_address"]
+        first = row["first_seen"]
+        last = row["last_seen"]
+
+        if not first or not last:
+            continue
+
+        try:
+            first_dt = datetime.fromisoformat(first)
+            last_dt = datetime.fromisoformat(last)
+        except Exception:
+            continue
+
+        # If user connected for multiple hours, count them in each hour
+        start_hour = first_dt.hour
+        end_hour = last_dt.hour
+
+        if start_hour == end_hour:
+            hourly_counts[start_hour].add(mac)
+        else:
+            for h in range(start_hour, end_hour + 1):
+                hourly_counts[h % 24].add(mac)
+
+    # Convert to list of {hour, unique_users}
+    result = [{"hour": h, "unique_users": len(macs)} for h, macs in sorted(hourly_counts.items())]
+
+    return jsonify({
+        "date": date,
+        "busy_hours": result,
+    })
 
 
 @app.route("/api/cleanup", methods=["POST"])
