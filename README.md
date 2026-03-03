@@ -458,6 +458,53 @@ By design, this service **does not track event counts** (i.e., how many times a 
 
 If you need to track raw authentication events for audit purposes, set `STORE_AUTH_EVENTS=true` in `.env`.
 
+## Importing Historical Data
+
+You can backfill the database with historical authentication data from HP MSM controller CSV exports.
+
+### CSV Format
+
+The import script expects CSV files exported from the HP MSM controller with this format:
+
+```
+Severity,ID,Device,System name,Device type,Category,Type,Alarm ID,Description,Timestamp
+```
+
+The script will:
+- Parse MAC addresses from the Description field
+- Extract SSID information and normalize it (e.g., `r1v2` → `DCPL-PATRON`)
+- Track first/last authentication times per MAC per day
+- Skip or merge duplicate records intelligently
+
+### Usage
+
+**Import a single file:**
+
+```bash
+python3 import_csv.py /path/to/2026-03-03_events.csv
+```
+
+**Import multiple files:**
+
+```bash
+python3 import_csv.py /path/to/*.csv
+python3 import_csv.py 2026-03-02_events.csv 2026-03-03_events.csv
+```
+
+**Windows:**
+
+```powershell
+python import_csv.py C:\path\to\wireless_events\2026-03-03_events.csv
+```
+
+The script will output:
+- Total rows processed
+- Number of authentication events parsed
+- Unique MACs per day
+- Records inserted vs. updated
+
+> **Note:** If the database already has data for a date/MAC, the script will intelligently merge the time ranges (extending first_seen/last_seen as needed) rather than duplicating data.
+
 ## CLI Commands (wireless_monitor.py)
 
 ```bash
@@ -475,11 +522,15 @@ wireless_stats/
 ├── app.py                    # Main service: syslog + Flask API
 ├── wireless_monitor.py       # Standalone CLI monitor
 ├── wireless_service_win.py   # Windows service wrapper
+├── import_csv.py             # CSV import script for historical data
+├── update.ps1                # Windows update script (no Git required)
+├── update.sh                 # Linux/macOS update script (no Git required)
 ├── install_windows.bat       # One-click Windows installer
 ├── Dockerfile                # Docker image definition
 ├── docker-compose.yml        # Docker Compose config
 ├── wifi-monitor.service      # systemd unit file (Linux)
 ├── requirements.txt          # Python dependencies
+├── .env.example              # Configuration template
 ├── wireless_stats.db         # SQLite database (auto-created)
 ├── wireless_service.log      # Service log (auto-created)
 └── README.md
