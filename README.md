@@ -6,9 +6,11 @@ Wireless user statistics service for **Daviess County Public Library**. Captures
 
 - **Syslog Listener** — Receives UDP syslog from HP MSM controllers on port 514
 - **MAC Address Tracking** — Identifies unique wireless users by MAC address per day
-- **REST API** — Query stats by date, month, date range, SSID, and unique user counts
+- **Time-of-Day Analysis** — Tracks first/last connection times for usage pattern analysis
+- **SSID Normalization** — Automatically maps controller SSID codes to friendly names
+- **REST API** — Query stats by date, month, date range, SSID, busy hours, and unique user counts
 - **Windows Service** — Runs as a background service on Windows Server
-- **SQLite Database** — Lightweight, zero-config persistent storage
+- **SQLite Database** — Lightweight, zero-config persistent storage with automatic cleanup
 - **CSV Export** — Export stats for reporting
 
 ## Compatible Controllers
@@ -59,8 +61,12 @@ Available settings:
 - `SYSLOG_HOST` - Host to bind syslog listener to (default: 0.0.0.0)
 - `DB_PATH` - Path to SQLite database file (default: ./wireless_stats.db)
 - `LOG_PATH` - Path to service log file (default: ./wireless_service.log)
-- `AUTH_EVENTS_RETENTION_DAYS` - Days to keep raw auth events (default: 30)
-- `DAILY_STATS_RETENTION_DAYS` - Days to keep daily stats (default: 365)
+- `AUTH_EVENTS_RETENTION_DAYS` - Days to keep raw auth events (default: 30, set to 0 to disable)
+- `DAILY_STATS_RETENTION_DAYS` - Days to keep daily stats (default: 365, set to 0 to disable)
+- `STORE_AUTH_EVENTS` - Store raw authentication events (default: false, recommended: false)
+- `SSID_V1_NAME` - Friendly name for v1 SSIDs (default: DCPL-PATRON)
+- `SSID_V2_NAME` - Friendly name for v2 SSIDs (default: DCPL-STAFF)
+- `SSID_V3_NAME` - Friendly name for v3 SSIDs (default: DCPL-OPS)
 
 ## Requirements
 
@@ -175,6 +181,68 @@ python wireless_service_win.py remove
 
 The service is also visible in `services.msc` as **Wireless User Statistics Service**.
 
+## Updating the Service
+
+### Update via Git (Recommended)
+
+If you have Git installed:
+
+**Windows:**
+```powershell
+net stop WirelessStatsService
+cd C:\path\to\wifi-monitor
+git pull origin main
+net start WirelessStatsService
+```
+
+**Linux/macOS:**
+```bash
+sudo systemctl stop wifi-monitor  # If using systemd
+cd /path/to/wifi-monitor
+git pull origin main
+sudo systemctl start wifi-monitor
+```
+
+### Update without Git
+
+Update scripts are provided to download the latest version directly from GitHub without requiring Git.
+
+**Windows:**
+
+Right-click PowerShell and select **Run as Administrator**, then:
+
+```powershell
+cd C:\path\to\wifi-monitor
+.\update.ps1
+```
+
+Or double-click `update.ps1` and select "Run with PowerShell".
+
+**Linux/macOS:**
+
+```bash
+cd /path/to/wifi-monitor
+./update.sh
+```
+
+Both scripts will:
+1. Stop the service (if running)
+2. Download the latest version from GitHub
+3. Update all files except `.env`, `wireless_stats.db`, and logs
+4. Restart the service
+
+**Custom repository or branch:**
+
+```powershell
+# Windows
+.\update.ps1 -Repo "username/repo" -Branch "develop"
+```
+
+```bash
+# Linux/macOS
+REPO="username/repo" BRANCH="develop" ./update.sh
+```
+
 ### Linux Install
 
 ```bash
@@ -255,10 +323,17 @@ Current day's stats.
 {
   "date": "2026-03-02",
   "unique_users": 23,
-  "total_events": 86,
   "ssid_breakdown": [
     {"ssid": "DCPL-PATRON", "unique_users": 19},
     {"ssid": "DCPL-STAFF", "unique_users": 4}
+  ],
+  "devices": [
+    {
+      "mac_address": "AA:BB:CC:DD:EE:FF",
+      "first_seen": "2026-03-02T09:15:23",
+      "last_seen": "2026-03-02T16:42:18",
+      "ssid": "DCPL-PATRON"
+    }
   ]
 }
 ```
@@ -283,11 +358,10 @@ Monthly tally with daily breakdown.
 {
   "month": "2026-03",
   "unique_users_this_month": 142,
-  "total_events": 5280,
   "ssid_breakdown": [...],
   "daily_breakdown": [
-    {"date": "2026-03-01", "unique_users": 45, "total_events": 620},
-    {"date": "2026-03-02", "unique_users": 23, "total_events": 86}
+    {"date": "2026-03-01", "unique_users": 45},
+    {"date": "2026-03-02", "unique_users": 23}
   ]
 }
 ```
@@ -317,6 +391,26 @@ Most frequently seen devices. Defaults to last 7 days, top 20.
 
 Per-SSID breakdown. Defaults to last 7 days.
 
+### `GET /api/busy-hours?date={YYYY-MM-DD}`
+
+Estimate busy hours of day based on user connection times. Defaults to today.
+
+```
+/api/busy-hours?date=2026-03-02
+```
+
+```json
+{
+  "date": "2026-03-02",
+  "busy_hours": [
+    {"hour": 0, "unique_users": 0},
+    {"hour": 9, "unique_users": 12},
+    {"hour": 14, "unique_users": 23},
+    {"hour": 23, "unique_users": 2}
+  ]
+}
+```
+
 ### `POST /api/cleanup`
 
 Manually trigger database cleanup to remove old records based on retention policy.
@@ -329,8 +423,8 @@ curl -X POST http://localhost:8088/api/cleanup
 
 The service automatically cleans up old data daily at 3 AM to keep the database size manageable:
 
-- **Raw authentication events** are deleted after 30 days (configurable via `AUTH_EVENTS_RETENTION_DAYS`)
-- **Daily statistics** are deleted after 365 days (configurable via `DAILY_STATS_RETENTION_DAYS`)
+- **Raw authentication events** — Stored only if `STORE_AUTH_EVENTS=true` (disabled by default for efficiency), deleted after `AUTH_EVENTS_RETENTION_DAYS` (default: 30)
+- **Daily statistics** — Deleted after `DAILY_STATS_RETENTION_DAYS` (default: 365)
 
 You can manually trigger cleanup anytime via the API:
 
@@ -339,6 +433,15 @@ curl -X POST http://localhost:8088/api/cleanup
 ```
 
 The cleanup process also runs `VACUUM` to reclaim disk space.
+
+### Event Count Tracking
+
+By design, this service **does not track event counts** (i.e., how many times a user authenticated). Instead:
+- Each unique MAC address is counted once per day
+- `first_seen` and `last_seen` timestamps track arrival/departure times
+- This approach minimizes storage and provides cleaner unique user statistics
+
+If you need to track raw authentication events for audit purposes, set `STORE_AUTH_EVENTS=true` in `.env`.
 
 ## CLI Commands (wireless_monitor.py)
 
@@ -371,10 +474,24 @@ wireless_stats/
 
 SQLite database (`wireless_stats.db`) with two tables:
 
-- **auth_events** — Raw syslog events (MAC, type, SSID, timestamp)
-- **daily_stats** — Aggregated daily stats per MAC (unique constraint on date + MAC)
+- **auth_events** — Optional raw syslog events (only stored if `STORE_AUTH_EVENTS=true`)
+- **daily_stats** — Daily stats per unique MAC (date + MAC primary key):
+  - `first_seen` — First authentication timestamp for the day
+  - `last_seen` — Most recent authentication timestamp for the day
+  - `ssid` — Normalized SSID name (e.g., DCPL-PATRON)
+  - `auth_count` — Kept for backwards compatibility (always 1)
 
 The database uses WAL mode for concurrent read/write access from the syslog listener and API threads.
+
+### SSID Normalization
+
+The service automatically normalizes HP MSM controller SSID identifiers:
+- SSIDs containing `v1` → Mapped to `SSID_V1_NAME` (default: DCPL-PATRON)
+- SSIDs containing `v2` → Mapped to `SSID_V2_NAME` (default: DCPL-STAFF)
+- SSIDs containing `v3` → Mapped to `SSID_V3_NAME` (default: DCPL-OPS)
+- SSIDs already containing `DCPL-*` → Preserved as-is
+
+Configure custom names in `.env` if your network uses different naming conventions.
 
 ## License
 
