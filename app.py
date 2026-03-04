@@ -48,9 +48,11 @@ DAILY_STATS_RETENTION_DAYS = int(os.environ.get("DAILY_STATS_RETENTION_DAYS", 36
 # The daily_stats table still tracks per-device first_seen/last_seen for time-of-day analysis.
 STORE_AUTH_EVENTS = os.environ.get("STORE_AUTH_EVENTS", "false").lower() in ("1", "true", "yes", "on")
 
-# Optional SSID normalization for HP MSM style identifiers (r1v1, r2v2, etc.)
-SSID_V1_NAME = os.environ.get("SSID_V1_NAME", "DCPL-PATRON")
-SSID_V2_NAME = os.environ.get("SSID_V2_NAME", "DCPL-STAFF")
+# HP MSM style identifiers (r1v1, r2v2, etc.)
+# Confirmed mapping from controller CSV export (2026-03-03):
+#   v1 => DCPL-STAFF, v2 => DCPL-PATRON, v3 => DCPL-OPS
+SSID_V1_NAME = os.environ.get("SSID_V1_NAME", "DCPL-STAFF")
+SSID_V2_NAME = os.environ.get("SSID_V2_NAME", "DCPL-PATRON")
 SSID_V3_NAME = os.environ.get("SSID_V3_NAME", "DCPL-OPS")
 
 MAC_PATTERN = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
