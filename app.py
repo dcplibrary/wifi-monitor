@@ -400,7 +400,10 @@ def api_month(month):
     )
     daily = [dict(row) for row in c.fetchall()]
 
-    # Month totals
+    # total_sessions = sum of each day's unique MAC count (matches CSV session definition)
+    total_sessions = sum(row["unique_users"] for row in daily)
+
+    # unique_devices = distinct MACs across the whole month (visitors, not sessions)
     c.execute(
         "SELECT COUNT(DISTINCT mac_address) FROM daily_stats WHERE date LIKE ?",
         (f"{month}%",),
@@ -424,6 +427,7 @@ def api_month(month):
     conn.close()
     return jsonify({
         "month": month,
+        "total_sessions": total_sessions,
         "unique_users_this_month": unique_for_month,
         "total_events": total_events,
         "ssid_breakdown": ssids,
@@ -454,6 +458,10 @@ def api_range():
     )
     daily = [dict(row) for row in c.fetchall()]
 
+    # total_sessions = sum of each day's unique MAC count (matches CSV session definition)
+    total_sessions = sum(row["unique_users"] for row in daily)
+
+    # unique_users = distinct MACs across the whole range (unique devices, not sessions)
     c.execute(
         "SELECT COUNT(DISTINCT mac_address) FROM daily_stats WHERE date BETWEEN ? AND ?",
         (start, end),
@@ -464,6 +472,9 @@ def api_range():
     return jsonify({
         "start": start,
         "end": end,
+        "start_date": start,
+        "end_date": end,
+        "total_sessions": total_sessions,
         "unique_users": unique_total,
         "daily_breakdown": daily,
     })

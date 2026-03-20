@@ -28,9 +28,9 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "wireless_stats.db"))
 
-# SSID normalization
-SSID_V1_NAME = os.environ.get("SSID_V1_NAME", "DCPL-PATRON")
-SSID_V2_NAME = os.environ.get("SSID_V2_NAME", "DCPL-STAFF")
+# SSID normalization — must match app.py defaults (v1=STAFF, v2=PATRON)
+SSID_V1_NAME = os.environ.get("SSID_V1_NAME", "DCPL-STAFF")
+SSID_V2_NAME = os.environ.get("SSID_V2_NAME", "DCPL-PATRON")
 SSID_V3_NAME = os.environ.get("SSID_V3_NAME", "DCPL-OPS")
 
 # Regex patterns
